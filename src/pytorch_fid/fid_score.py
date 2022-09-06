@@ -236,11 +236,42 @@ def compute_statistics_of_path(path, model, batch_size, dims, device,
     else:
         path = pathlib.Path(path)
         files = sorted([file for ext in IMAGE_EXTENSIONS
-                       for file in path.glob('*.{}'.format(ext))])
+                        for file in path.glob('*.{}'.format(ext))])
         m, s = calculate_activation_statistics(files, model, batch_size,
                                                dims, device, num_workers)
 
     return m, s
+
+
+def compute_statistics_of_paths(paths, model, batch_size, dims, device,
+                                num_workers=1):
+    paths = [pathlib.Path(path) for path in paths]
+    files = sorted([file for path in paths for ext in IMAGE_EXTENSIONS
+                    for file in path.glob('*.{}'.format(ext))])
+    m, s = calculate_activation_statistics(files, model, batch_size,
+                                           dims, device, num_workers)
+
+    return m, s
+
+
+def calculate_fid_given_sets_of_paths(paths, batch_size, device, dims, num_workers=1):
+    """Calculates the FID of two sets of paths"""
+    for path in paths:
+        for p in path:
+            if not os.path.exists(p):
+                raise RuntimeError('Invalid path: %s' % p)
+
+    block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[dims]
+
+    model = InceptionV3([block_idx]).to(device)
+
+    m1, s1 = compute_statistics_of_paths(paths[0], model, batch_size,
+                                         dims, device, num_workers)
+    m2, s2 = compute_statistics_of_paths(paths[1], model, batch_size,
+                                         dims, device, num_workers)
+    fid_value = calculate_frechet_distance(m1, s1, m2, s2)
+
+    return fid_value
 
 
 def calculate_fid_given_paths(paths, batch_size, device, dims, num_workers=1):
@@ -276,12 +307,30 @@ def main():
     else:
         num_workers = args.num_workers
 
-    fid_value = calculate_fid_given_paths(args.path,
-                                          args.batch_size,
-                                          device,
-                                          args.dims,
-                                          num_workers)
+    fid_value = calculate_fid_given_sets_of_paths([a, b],
+                                                  args.batch_size,
+                                                  device,
+                                                  args.dims,
+                                                  num_workers)
     print('FID: ', fid_value)
+
+
+def fid(paths):
+    fid_value = calculate_fid_given_sets_of_paths(paths,
+                                                  batch_size=100,
+                                                  device="cuda:0",
+                                                  dims=2048,
+                                                  num_workers=16)
+    return fid_value
+
+
+def fid_single(paths):
+    fid_value = calculate_fid_given_paths(paths,
+                                          batch_size=100,
+                                          device="cuda:0",
+                                          dims=2048,
+                                          num_workers=16)
+    return fid_value
 
 
 if __name__ == '__main__':
